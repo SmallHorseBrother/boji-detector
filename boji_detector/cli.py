@@ -111,6 +111,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if all(s == "ok" for s in states.values()) else 1
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        from .server import serve
+    except ImportError:
+        print('the HTTP service needs: pip install "boji-detector[server]"', file=sys.stderr)
+        return 2
+    models.require("pose")
+    models.require("segmenter")
+    serve(args.host, args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="boji", description="Explainable photo-based physique metrics")
     parser.add_argument("--version", action="version", version=__version__)
@@ -132,6 +144,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = sub.add_parser("doctor", help="check models and dependencies")
     doctor.set_defaults(func=cmd_doctor)
+
+    serve = sub.add_parser("serve", help="run the HTTP service (needs the [server] extra)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.set_defaults(func=cmd_serve)
     return parser
 
 

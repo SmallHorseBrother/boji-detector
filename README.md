@@ -52,6 +52,16 @@ report, perception = analyze_image("photo.jpg")
 print(report.metrics["abs"].values["pack_count"], report.total["score"])
 ```
 
+### HTTP 服务
+
+```bash
+pip install -e ".[server]"
+boji serve --host 0.0.0.0 --port 8000
+curl -X POST --data-binary @photo.jpg -H "Content-Type: image/jpeg" http://127.0.0.1:8000/v1/analyze
+```
+
+返回 `{"report": …, "messages": {原因码: {"zh", "en"}}}`。照片只在内存里处理，不落盘、不写日志；单张约 0.3–0.5 秒，同步返回。设置 `BOJI_SERVICE_TOKEN` 后请求必须带 `X-Boji-Token`；`BOJI_MAX_UPLOAD_MB` 限制上传大小（默认 10）。`GET /healthz` 用于健康检查。
+
 标注图默认把头部打成粗马赛克（找不到五官时按肩部以上的轮廓打码）；黄色线是肩宽，红色线是最窄腰，青色短线是手臂宽度，蓝线是腹白线，橙线是腱划，色块是识别到的每一块腹肌（越绿封闭度越高）。
 
 ### 拍摄建议

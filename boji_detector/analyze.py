@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import BinaryIO
 
 import cv2
 import numpy as np
@@ -79,8 +80,9 @@ def analyze_perception(p: Perception, config: ScoringConfig = DEFAULT_CONFIG) ->
     return report, upright
 
 
-def read_image(path: str | Path) -> np.ndarray:
-    """Full-size BGR image with EXIF orientation applied (HEIC if pillow-heif is installed)."""
+def read_image(path: str | Path | BinaryIO) -> np.ndarray:
+    """Full-size BGR image from a path or file object, EXIF orientation applied
+    (HEIC if pillow-heif is installed)."""
     from PIL import Image, ImageOps
 
     try:
