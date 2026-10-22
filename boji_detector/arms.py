@@ -54,7 +54,7 @@ def measure_segment(
     u = d / length
     normal = np.array([-u[1], u[0]])
     max_len = int(0.6 * length)
-    widths, lines, clothes = [], [], []
+    found: list[dict[str, Any]] = []
     cut = 0
     for t in samples:
         c = a + t * d
@@ -69,19 +69,28 @@ def measure_segment(
         merged = inner >= max_len or inner > MERGE_FACTOR * outer
         if merged:
             inner = outer
-        widths.append(outer + inner - 1)
         p0, p1 = c - inner * outward, c + outer * outward
-        lines.append([p0.tolist(), p1.tolist()])
-        clothes.append(_clothes_share(p, p0, p1))
-    if not widths:
+        found.append({
+            "width": outer + inner - 1,
+            "merged": merged,
+            "line": [p0.tolist(), p1.tolist()],
+            "clothes": _clothes_share(p, p0, p1),
+        })
+    if not found:
         return {"cut_off": True} if cut else None
-    width = float(np.median(widths))
+    # Where the arm touches the torso its inner edge is hidden and the width is
+    # a mirrored guess around the landmark line, which is rarely centred. Use
+    # samples with both edges visible whenever there are any.
+    complete = [f for f in found if not f["merged"]]
+    used = complete or found
+    width = float(np.median([f["width"] for f in used]))
     return {
         "width": width,
         "length": length,
         "ratio": width / length,
-        "lines": lines,
-        "clothes": float(np.mean(clothes)),
+        "estimated": not complete,
+        "lines": [f["line"] for f in used],
+        "clothes": float(np.mean([f["clothes"] for f in found])),
     }
 
 
@@ -127,6 +136,7 @@ def arms_metric(p: Perception, frame: BodyFrame, config: ScoringConfig = DEFAULT
     for name, result in measured.items():
         values[f"upper_ratio_{name}"] = result["upper"]["ratio"]
         values[f"upper_width_px_{name}"] = result["upper"]["width"]
+        values[f"upper_width_estimated_{name}"] = result["upper"]["estimated"]
         upper_ratios.append(result["upper"]["ratio"])
         lines += result["upper"]["lines"]
         if result["fore"] is not None:
