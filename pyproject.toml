@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boji-detector"
+version = "0.1.0"
+description = "Explainable, photo-based physique metrics: V-taper, symmetry, arms and abdominal definition"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = {text = "MIT"}
+authors = [{name = "boji-detector contributors"}]
+keywords = ["fitness", "bodybuilding", "computer-vision", "mediapipe", "physique"]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "Pillow>=10",
+  "mediapipe>=0.10.14",  # brings opencv-contrib-python
+]
+
+[project.urls]
+Homepage = "https://github.com/SmallHorseBrother/boji-detector"
+"Lean Club guide" = "https://github.com/SmallHorseBrother/PKU-THU-Lean-Club"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5"]
+heif = ["pillow-heif>=0.16"]
+
+[project.scripts]
+boji = "boji_detector.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["boji_detector*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

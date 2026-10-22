@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+# model weights are downloaded, never committed
+models/
+*.task
+*.tflite
+# local photos and outputs: body photos are sensitive, keep them out of git
+samples/
+out/
+*.overlay.png
+.coverage
+htmlcov/
+
+# never commit photos of people
+*.png
+*.jpg
+*.jpeg
+*.heic
+*.webp
