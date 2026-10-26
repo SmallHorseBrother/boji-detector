@@ -21,6 +21,19 @@
 
 总分是各项分数的加权平均（默认 腹肌 0.40 / 倒三角 0.30 / 手臂 0.15 / 对称 0.15），不可测的项会被剔除后重新归一化。权重和曲线都可以用 `--config` 覆盖。
 
+### 女性档（`--sex female`，0.2 起）
+
+女性的审美目标不同，所以单独一套打分，测量方法共用：
+
+| 指标 | 原始测量 | 和男性档的区别 |
+|---|---|---|
+| 马甲线 `abs` | `line_index` = 腹白线与两侧腹直肌外缘的沟深加权平均（0.4 / 0.3 / 0.3） | 不数块，只看竖线；检查露腹的区域下移到运动内衣下沿和高腰裤之间 |
+| 腰臀比 `waist_hip` | `ratio` = 最窄腰宽 / 髋关节附近最宽的臀宽 | 只在女性档计算；手挡住髋部轮廓的行会被跳过（用手腕和指根关键点估出整只手） |
+| 肩腰比 `v_taper` | 同男性档 | 曲线中点 1.55（男性 1.62） |
+| 对称 `symmetry` | 同男性档 | |
+
+女性总分权重：马甲线 0.35 / 腰臀比 0.35 / 肩腰比 0.15 / 对称 0.15；手臂照样测量和返回，但不计入总分（多数女性不以手臂粗为目标）。曲线同样是占位值，按 19 张 CC0 女性健身照粗调过，待校准。
+
 算法细节见下方[方法](#方法)。
 
 ## 安装
@@ -44,6 +57,7 @@ boji doctor
 boji analyze photo.jpg --out out/          # 中文文字报告 + out/photo.json + out/photo.overlay.png
 boji analyze a.jpg b.jpg --format json     # 批量，JSON 输出
 boji analyze photo.jpg --lang en --keep-face
+boji analyze photo.jpg --sex female        # 女性档：马甲线 + 腰臀比
 ```
 
 ```python
@@ -58,11 +72,12 @@ print(report.metrics["abs"].values["pack_count"], report.total["score"])
 pip install -e ".[server]"
 boji serve --host 0.0.0.0 --port 8000
 curl -X POST --data-binary @photo.jpg -H "Content-Type: image/jpeg" http://127.0.0.1:8000/v1/analyze
+curl -X POST --data-binary @photo.jpg "http://127.0.0.1:8000/v1/analyze?sex=female"
 ```
 
-返回 `{"report": …, "messages": {原因码: {"zh", "en"}}}`。照片只在内存里处理，不落盘、不写日志；单张约 0.3–0.5 秒，同步返回。设置 `BOJI_SERVICE_TOKEN` 后请求必须带 `X-Boji-Token`；`BOJI_MAX_UPLOAD_MB` 限制上传大小（默认 10）。`GET /healthz` 用于健康检查。
+返回 `{"report": …, "messages": {原因码: {"zh", "en"}}}`，`report.profile` 是所用的档（`male` 默认 / `female`）。照片只在内存里处理，不落盘、不写日志；单张约 0.3–0.5 秒，同步返回。设置 `BOJI_SERVICE_TOKEN` 后请求必须带 `X-Boji-Token`；`BOJI_MAX_UPLOAD_MB` 限制上传大小（默认 10）。`GET /healthz` 用于健康检查。
 
-标注图默认把头部打成粗马赛克（找不到五官时按肩部以上的轮廓打码）；黄色线是肩宽，红色线是最窄腰，青色短线是手臂宽度，蓝线是腹白线，橙线是腱划，色块是识别到的每一块腹肌（越绿封闭度越高）。
+标注图默认把头部打成粗马赛克（找不到五官时按肩部以上的轮廓打码）；黄色线是肩宽，红色线是最窄腰，青色短线是手臂宽度，蓝线是腹白线，橙线是腱划，色块是识别到的每一块腹肌（越绿封闭度越高）；女性档另有紫红线标出最宽的臀宽。
 
 ### 拍摄建议
 

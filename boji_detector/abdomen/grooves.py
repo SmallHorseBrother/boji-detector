@@ -153,16 +153,18 @@ def find_grooves(ws: Workspace, alba: Alba, sign: int) -> list[Groove]:
     return grooves
 
 
-def find_lateral(ws: Workspace, alba: Alba, sign: int, r0: float, r1: float) -> tuple[float, bool]:
+def find_lateral(ws: Workspace, alba: Alba, sign: int, r0: float, r1: float) -> tuple[float, bool, float]:
+    """(distance from the alba, found, valley strength) of one lateral rectus edge."""
     w = ws.waist
     rows = np.arange(int(r0), int(r1) + 1)
     if rows.size < 3:
-        return LATERAL_DEFAULT * w, False
+        return LATERAL_DEFAULT * w, False, 0.0
     offsets = np.arange(LATERAL_SEARCH[0] * w, LATERAL_SEARCH[1] * w + 1)
     xs = alba.x(rows)[:, None] + sign * offsets[None, :]
     vals, ok = _sample(ws.vertical, ws.valid, rows[:, None], xs)
     profile = gaussian_filter1d(np.nan_to_num(_masked_mean(vals, ok, axis=0, min_share=0.5)), 1.5)
     j = int(np.argmax(profile))
-    if profile[j] < GROOVE_FLOOR:
-        return LATERAL_DEFAULT * w, False
-    return float(offsets[j]), True
+    strength = float(profile[j])
+    if strength < GROOVE_FLOOR:
+        return LATERAL_DEFAULT * w, False, strength
+    return float(offsets[j]), True, strength

@@ -31,6 +31,10 @@ LOW_CONFIDENCE = frozenset({
 
 MIN_WAIST_PX = 120.0
 CORE_T = (0.35, 0.80)
+# A sports bra covers the upper core on most women's photos; check the
+# visibility of the abdomen below it instead.
+CORE_T_FEMALE = (0.42, 0.72)       # below the bra, above high-waisted leggings
+MIN_CORE_SKIN_FEMALE = 0.55
 CORE_HALF = 0.30
 MIN_CORE_SKIN = 0.6
 MIN_CORE_IN_PHOTO = 0.8
@@ -38,6 +42,8 @@ FALLBACK_WAIST_PER_SHOULDER = 0.85  # waist width / shoulder-joint distance, typ
 OVEREXPOSED_SHARE = 0.08
 UNDEREXPOSED_MEDIAN = 40
 SIDE_LIGHT_LOG = 0.35
+# Female profile: weight of the linea alba vs each lateral edge in the line index.
+LINE_WEIGHTS = {"alba": 0.4, "image_left": 0.3, "image_right": 0.3}
 
 __all__ = ["abs_metric", "R_ABDOMEN_COVERED", "R_ABDOMEN_OUT_OF_FRAME"]
 
@@ -51,10 +57,10 @@ def _estimate_waist(p: Perception, frame: BodyFrame) -> float:
     return FALLBACK_WAIST_PER_SHOULDER * frame.shoulder_joint_dist
 
 
-def _core_shares(ws: Workspace) -> tuple[float, float]:
+def _core_shares(ws: Workspace, core_t: tuple[float, float] = CORE_T) -> tuple[float, float]:
     """(share of the central abdomen inside the photo, share of that which is skin)."""
     h, w = ws.shape
-    want0, want1 = ws.y_work(CORE_T[0]), ws.y_work(CORE_T[1])
+    want0, want1 = ws.y_work(core_t[0]), ws.y_work(core_t[1])
     r0, r1 = max(0, int(want0)), min(h - 1, int(want1))
     if r1 <= r0:
         return 0.0, 0.0
@@ -128,6 +134,13 @@ def _geometry(ws: Workspace, alba: Alba, grooves: dict[str, list[Groove]],
     }
 
 
+def line_definition_index(alba_strength: float, lateral_strength: dict[str, float]) -> float:
+    """How clearly the vertical lines (linea alba and both lateral rectus edges)
+    show: a weighted mean of their valley strengths, what people call the "vest line"."""
+    parts = {"alba": alba_strength, **lateral_strength}
+    return float(sum(LINE_WEIGHTS[k] * max(0.0, parts.get(k, 0.0)) for k in LINE_WEIGHTS))
+
+
 def abs_metric(
     p: Perception,
     frame: BodyFrame,
@@ -150,25 +163,27 @@ def abs_metric(
     ws = build_workspace(p, frame, waist_px)
     if ws is None:
         return unavailable(key, R_NOT_MEASURABLE)
-    photo_share, skin_share = _core_shares(ws)
+    female = config.profile == "female"
+    photo_share, skin_share = _core_shares(ws, CORE_T_FEMALE if female else CORE_T)
     if photo_share < MIN_CORE_IN_PHOTO:
         return unavailable(key, R_ABDOMEN_OUT_OF_FRAME)
-    if skin_share < MIN_CORE_SKIN:
+    if skin_share < (MIN_CORE_SKIN_FEMALE if female else MIN_CORE_SKIN):
         return unavailable(key, R_ABDOMEN_COVERED)
 
     alba = find_alba(ws)
     if not alba.found:
         reasons.append(R_ALBA_NOT_FOUND)
     grooves, laterals, blocks = {}, {}, []
-    counts = {}
+    counts, lateral_strength = {}, {}
     for side, sign in SIDES.items():
         side_grooves = find_grooves(ws, alba, sign)
         grooves[side] = side_grooves
         if len(side_grooves) >= 2:
-            lateral, _ = find_lateral(ws, alba, sign, side_grooves[0].row, side_grooves[-1].row)
+            lateral, _, strength = find_lateral(ws, alba, sign, side_grooves[0].row, side_grooves[-1].row)
         else:
-            lateral, _ = find_lateral(ws, alba, sign, *ws.row_range)
+            lateral, _, strength = find_lateral(ws, alba, sign, *ws.row_range)
         laterals[side] = lateral
+        lateral_strength[side] = strength
         found = side_blocks(ws, alba, side, sign, side_grooves, lateral)
         counts[side] = len(found)
         blocks += found
@@ -179,6 +194,7 @@ def abs_metric(
     per_side = float(np.mean(list(counts.values())))
     index = definition_index(blocks, max(strengths), per_side)
     enclosure = float(np.mean([b.enclosure for b in blocks])) if blocks else 0.0
+    line_index = line_definition_index(alba.strength, lateral_strength)
     values: dict[str, Any] = {
         "definition_index": index,
         "pack_count": int(sum(counts.values())),
@@ -190,6 +206,9 @@ def abs_metric(
         "mean_relief": float(np.mean([b.relief for b in blocks])) if blocks else 0.0,
         "alba_found": bool(alba.found),
         "alba_strength": alba.strength,
+        "lateral_strength_image_left": lateral_strength["image_left"],
+        "lateral_strength_image_right": lateral_strength["image_right"],
+        "line_index": line_index,
         "waist_px_used": float(waist_px),
         "work_scale": WORK_WAIST / float(waist_px),
         **light_values,
@@ -198,7 +217,8 @@ def abs_metric(
     return Metric(
         key=key,
         status=status_for(all_reasons, LOW_CONFIDENCE),
-        score=logistic_score(index, config.abs),
+        score=(logistic_score(line_index, config.abs_lines) if config.profile == "female"
+               else logistic_score(index, config.abs)),
         values=values,
         reasons=all_reasons,
         geometry=_geometry(ws, alba, grooves, laterals, blocks),

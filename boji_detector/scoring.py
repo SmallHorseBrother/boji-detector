@@ -16,6 +16,7 @@ from typing import Any, Mapping
 from .types import Metric
 
 CALIBRATION = "uncalibrated-v0"
+PROFILES = ("male", "female")
 # A total needs metrics covering at least this share of the weights; one
 # metric alone (say, symmetry on a head-and-shoulders portrait) is not a total.
 MIN_TOTAL_COVERAGE = 0.5
@@ -31,9 +32,14 @@ class Curve:
 
 @dataclass(frozen=True)
 class ScoringConfig:
+    # "male": abs scored by separated blocks (packs); "female": by the vertical
+    # lines (linea alba + lateral rectus edges), and the waist/hip ratio counts.
+    profile: str = "male"
     v_taper: Curve = Curve(mid=1.62, scale=0.09)          # bideltoid / waist width
     arms: Curve = Curve(mid=0.36, scale=0.03)             # upper-arm width / length
     abs: Curve = Curve(mid=0.45, scale=0.08)              # definition index
+    abs_lines: Curve = Curve(mid=0.009, scale=0.004)      # vertical line index (female profile)
+    waist_hip: Curve = Curve(mid=-0.74, scale=0.03)       # minus waist / hip width
     symmetry_iou: Curve = Curve(mid=0.86, scale=0.025)    # mirrored silhouette IoU
     symmetry_balance: Curve = Curve(mid=0.88, scale=0.025)  # thinner / thicker arm
     symmetry_tilt: Curve = Curve(mid=-4.0, scale=1.2)     # minus |shoulder tilt| in degrees
@@ -43,6 +49,22 @@ class ScoringConfig:
 
 
 DEFAULT_CONFIG = ScoringConfig()
+
+# Women: the "vest line" instead of packs, a curvy waist/hip line and a modest
+# shoulder/waist taper; arm size is measured but does not count towards the total.
+FEMALE_CONFIG = ScoringConfig(
+    profile="female",
+    v_taper=Curve(mid=1.55, scale=0.08),
+    weights={"abs": 0.35, "waist_hip": 0.35, "v_taper": 0.15, "symmetry": 0.15},
+)
+
+
+def profile_config(profile: str | None) -> ScoringConfig:
+    if profile in (None, "", "male"):
+        return DEFAULT_CONFIG
+    if profile == "female":
+        return FEMALE_CONFIG
+    raise ValueError(f"unknown profile: {profile}")
 
 
 def logistic_score(value: float, curve: Curve) -> float:
@@ -71,23 +93,25 @@ def total_score(metrics: Mapping[str, Metric], config: ScoringConfig = DEFAULT_C
     }
 
 
-def load_config(path: str | Path | None) -> ScoringConfig:
+def load_config(path: str | Path | None, base: ScoringConfig = DEFAULT_CONFIG) -> ScoringConfig:
     """Override curves and weights from a JSON file shaped like ScoringConfig."""
     if path is None:
-        return DEFAULT_CONFIG
+        return base
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     updates: dict[str, Any] = {}
     for key, value in data.items():
-        if key == "weights":
+        if key == "profile":
+            updates["profile"] = profile_config(str(value)).profile
+        elif key == "weights":
             weights = {str(k): float(v) for k, v in value.items()}
             if any(not math.isfinite(v) or v < 0 for v in weights.values()) or sum(weights.values()) <= 0:
                 raise ValueError("weights must be non-negative and not all zero")
             updates["weights"] = weights
-        elif hasattr(DEFAULT_CONFIG, key):
+        elif isinstance(getattr(DEFAULT_CONFIG, key, None), Curve):
             curve = Curve(mid=float(value["mid"]), scale=float(value["scale"]))
             if not (math.isfinite(curve.mid) and math.isfinite(curve.scale) and curve.scale > 0):
                 raise ValueError(f"{key}: mid must be finite and scale positive")
             updates[key] = curve
         else:
             raise ValueError(f"unknown scoring key: {key}")
-    return replace(DEFAULT_CONFIG, **updates)
+    return replace(base, **updates)

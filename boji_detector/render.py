@@ -12,6 +12,7 @@ FACE_POINTS = ("nose", "left_eye", "right_eye", "left_ear", "right_ear", "mouth_
 YELLOW, RED, CYAN, BLUE, ORANGE, GREEN, WHITE = (
     (0, 220, 255), (40, 40, 230), (230, 210, 40), (230, 120, 30), (0, 140, 255), (80, 200, 60), (255, 255, 255),
 )
+MAGENTA = (200, 80, 230)
 
 
 def _pt(p) -> tuple[int, int]:
@@ -97,7 +98,7 @@ def _draw_abs(canvas: np.ndarray, geometry: dict, t: int) -> None:
 def _panel_lines(report: Report) -> list[str]:
     m = report.metrics
     total = report.total.get("score")
-    lines = [f"boji-detector {report.version} ({CALIBRATION})",
+    lines = [f"boji-detector {report.version} ({CALIBRATION}, {report.profile})",
              f"TOTAL {total:.0f}" if total is not None else "TOTAL n/a"]
 
     def score(key: str) -> str:
@@ -110,8 +111,13 @@ def _panel_lines(report: Report) -> list[str]:
     v = m["v_taper"].values
     lines.append(f"V-taper {score('v_taper')}" + (f"  ratio {v['ratio']:.2f}" if "ratio" in v else ""))
     a = m["abs"].values
-    lines.append(f"Abs {score('abs')}" + (f"  packs {a['pack_count']}  idx {a['definition_index']:.2f}"
-                                          if "pack_count" in a else ""))
+    if report.profile == "female":
+        lines.append(f"Vest line {score('abs')}" + (f"  idx {a['line_index']:.3f}" if "line_index" in a else ""))
+        w = m["waist_hip"].values
+        lines.append(f"Waist/hip {score('waist_hip')}" + (f"  ratio {w['ratio']:.2f}" if "ratio" in w else ""))
+    else:
+        lines.append(f"Abs {score('abs')}" + (f"  packs {a['pack_count']}  idx {a['definition_index']:.2f}"
+                                              if "pack_count" in a else ""))
     r = m["arms"].values
     lines.append(f"Arms {score('arms')}" + (f"  ratio {r['upper_ratio']:.2f}" if "upper_ratio" in r else ""))
     s = m["symmetry"].values
@@ -152,5 +158,11 @@ def render_overlay(p: Perception, report: Report, blur_face: bool = True) -> np.
     if "shoulder_line" in g:
         cv2.line(canvas, _pt(g["shoulder_line"][0]), _pt(g["shoulder_line"][1]), YELLOW, t + 1)
         cv2.line(canvas, _pt(g["waist_line"][0]), _pt(g["waist_line"][1]), RED, t + 1)
+    hips = metrics.get("waist_hip")
+    if hips is not None and hips.available:
+        h = hips.geometry
+        if "shoulder_line" not in g:
+            cv2.line(canvas, _pt(h["waist_line"][0]), _pt(h["waist_line"][1]), RED, t + 1)
+        cv2.line(canvas, _pt(h["hip_line"][0]), _pt(h["hip_line"][1]), MAGENTA, t + 1)
     _draw_panel(canvas, _panel_lines(report))
     return canvas

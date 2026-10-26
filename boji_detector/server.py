@@ -17,12 +17,13 @@ import threading
 from contextlib import asynccontextmanager
 from typing import Any, Callable
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
 from . import __version__
 from .analyze import analyze_image, read_image
 from .messages import MESSAGES
+from .scoring import ScoringConfig, profile_config
 
 logger = logging.getLogger("boji_detector.server")
 
@@ -72,7 +73,7 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
     def healthz() -> dict[str, Any]:
         return {"ok": state["perceiver"] is not None, "version": __version__}
 
-    def _analyze(data: bytes) -> dict[str, Any]:
+    def _analyze(data: bytes, config: ScoringConfig) -> dict[str, Any]:
         from PIL import Image
 
         try:
@@ -87,7 +88,7 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
         except Exception:
             raise HTTPException(status_code=400, detail="unreadable_image") from None
         with lock:
-            report, _ = analyze_image(bgr, perceiver=state["perceiver"])
+            report, _ = analyze_image(bgr, config, perceiver=state["perceiver"])
         payload = report.to_dict()
         return {"report": payload, "messages": _messages_for(payload)}
 
@@ -96,10 +97,15 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
         request: Request,
         x_boji_token: str | None = Header(default=None),
         content_length: int | None = Header(default=None),
+        sex: str = Query(default="male"),
     ) -> dict[str, Any]:
         token = os.environ.get("BOJI_SERVICE_TOKEN")
         if token and not hmac.compare_digest(token, x_boji_token or ""):
             raise HTTPException(status_code=401, detail="invalid_token")
+        try:
+            config = profile_config(sex)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="unknown_profile") from None
         limit = _max_upload_bytes()
         if content_length is not None and content_length > limit:
             raise HTTPException(status_code=413, detail="file_too_large")
@@ -109,7 +115,7 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
         if len(data) > limit:
             raise HTTPException(status_code=413, detail="file_too_large")
         try:
-            return await run_in_threadpool(_analyze, data)
+            return await run_in_threadpool(_analyze, data, config)
         except HTTPException:
             raise
         except Exception:

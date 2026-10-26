@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import __version__, models
 from .messages import describe
-from .scoring import load_config
+from .scoring import PROFILES, load_config, profile_config
 from .types import Report
 
 LABELS = {
@@ -54,7 +54,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     from .perception_mp import MediaPipePerceiver
     from .render import render_overlay
 
-    config = load_config(args.config)
+    config = load_config(args.config, profile_config(args.sex))
     out_dir = Path(args.out) if args.out else None
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -134,6 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--format", choices=("text", "json"), default="text")
     analyze.add_argument("--lang", choices=("zh", "en"), default="zh")
     analyze.add_argument("--config", help="JSON file overriding scoring curves and weights")
+    analyze.add_argument("--sex", choices=PROFILES, default="male",
+                         help="scoring profile: female scores the vest line and waist/hip ratio")
     analyze.add_argument("--no-overlay", action="store_true")
     analyze.add_argument("--keep-face", action="store_true", help="do not pixelate the face in overlays")
     analyze.set_defaults(func=cmd_analyze)

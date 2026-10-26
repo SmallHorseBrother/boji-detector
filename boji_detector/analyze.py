@@ -13,6 +13,7 @@ from . import __version__
 from .abdomen import abs_metric
 from .arms import arms_metric
 from .body import R_POSE_NOT_FOUND, build_body_frame
+from .hips import waist_hip_metric
 from .proportion import torso_rotation, v_taper_metric
 from .quality import R_CAMERA_TILTED, global_quality, sharpness
 from .scoring import DEFAULT_CONFIG, ScoringConfig, total_score
@@ -21,11 +22,16 @@ from .types import IDENTITY, Perception, Report, unavailable, with_low_confidenc
 from .upright import deskew
 
 METRIC_KEYS = ("v_taper", "symmetry", "arms", "abs")
+FEMALE_METRIC_KEYS = METRIC_KEYS + ("waist_hip",)
 MAX_SIDE = 1600
 
 
+def metric_keys(config: ScoringConfig) -> tuple[str, ...]:
+    return FEMALE_METRIC_KEYS if config.profile == "female" else METRIC_KEYS
+
+
 def _empty_report(p: Perception, reasons: tuple[str, ...], config: ScoringConfig) -> Report:
-    metrics = {key: unavailable(key, *reasons) for key in METRIC_KEYS}
+    metrics = {key: unavailable(key, *reasons) for key in metric_keys(config)}
     return Report(
         version=__version__,
         image_size=(p.width, p.height),
@@ -34,6 +40,7 @@ def _empty_report(p: Perception, reasons: tuple[str, ...], config: ScoringConfig
         metrics=metrics,
         total=total_score(metrics, config),
         original_size=(p.width, p.height),
+        profile=config.profile,
     )
 
 
@@ -63,6 +70,8 @@ def analyze_perception(p: Perception, config: ScoringConfig = DEFAULT_CONFIG) ->
     waist = v_taper.values.get("waist_width_px") if v_taper.available else None
     abdomen = abs_metric(upright, frame, waist, config)
     metrics = {"v_taper": v_taper, "symmetry": symmetry, "arms": arms, "abs": abdomen}
+    if config.profile == "female":
+        metrics["waist_hip"] = waist_hip_metric(upright, frame, config)
     quality = global_quality(upright, frame, angle, sharp)
     if R_CAMERA_TILTED in quality:
         metrics = {k: with_low_confidence(m, R_CAMERA_TILTED) for k, m in metrics.items()}
@@ -76,6 +85,7 @@ def analyze_perception(p: Perception, config: ScoringConfig = DEFAULT_CONFIG) ->
         total=total_score(metrics, config),
         to_original=to_original,
         original_size=(p.width, p.height),
+        profile=config.profile,
     )
     return report, upright
 

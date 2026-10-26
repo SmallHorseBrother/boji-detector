@@ -126,6 +126,7 @@ class Report:
     total: Mapping[str, Any]
     to_original: tuple[tuple[float, float, float], tuple[float, float, float]] = IDENTITY
     original_size: tuple[int, int] | None = None
+    profile: str = "male"                   # scoring profile: "male" or "female"
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))
