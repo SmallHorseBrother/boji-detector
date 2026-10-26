@@ -1,4 +1,9 @@
-"""Left-right symmetry: mirrored silhouette overlap, shoulder tilt, arm balance."""
+"""Left-right symmetry: mirrored torso overlap, shoulder tilt, arm balance.
+
+The overlap compares the torso only (armpits to waist): how the arms hang, a
+hand in a pocket or a phone held up for a mirror selfie is pose, not body
+asymmetry. Arm size differences count separately through the arm balance.
+"""
 
 from __future__ import annotations
 
@@ -9,19 +14,23 @@ import cv2
 import numpy as np
 
 from .body import R_HIPS_ESTIMATED, BodyFrame
-from .proportion import R_BODY_ROTATED, R_SHOULDERS_NOT_FOUND, arms_down, rotation_reasons
+from .proportion import (
+    R_ARMS_TOUCHING,
+    R_BODY_ROTATED,
+    R_SHOULDERS_NOT_FOUND,
+    arms_down,
+    rotation_reasons,
+    torso_row,
+)
 from .scoring import DEFAULT_CONFIG, ScoringConfig, logistic_score
 from .silhouette import run_at
 from .types import Metric, Perception, status_for, unavailable
 
 R_BODY_CUT_OFF = "body_cut_off"
 
-LOW_CONFIDENCE = frozenset({R_BODY_ROTATED, R_HIPS_ESTIMATED, R_BODY_CUT_OFF})
+LOW_CONFIDENCE = frozenset({R_BODY_ROTATED, R_HIPS_ESTIMATED, R_BODY_CUT_OFF, R_ARMS_TOUCHING})
 
-SYMMETRY_BAND = (-0.10, 0.85)
-# Arms raised, flexed or holding something: compare the torso only, below the
-# shoulders, so a raised arm or a dumbbell does not count as asymmetry.
-TORSO_ONLY_BAND = (0.15, 0.85)
+SYMMETRY_BAND = (0.15, 0.85)    # armpits to waist, fraction of the shoulder->hip axis
 AXIS_SEARCH = 0.04              # axis shift search, fraction of shoulder-joint distance
 SYMMETRY_MAX_WIDTH = 640
 MIN_KEPT_ROWS = 0.5             # below this share of whole rows the overlap is low confidence
@@ -58,17 +67,29 @@ def _torso_runs(p: Perception, frame: BodyFrame, rows: np.ndarray) -> np.ndarray
     return out
 
 
-def silhouette_symmetry(p: Perception, frame: BodyFrame, torso_only: bool = False) -> dict[str, float] | None:
-    band_t = TORSO_ONLY_BAND if torso_only else SYMMETRY_BAND
-    y0 = max(0, int(frame.y_at(band_t[0])))
-    y1 = min(p.height - 1, int(frame.y_at(band_t[1])))
+def _arm_merged(p: Perception, frame: BodyFrame, y: int) -> bool:
+    """An arm resting against the side merges into the torso run on that row."""
+    row = torso_row(p, frame, y)
+    return row is not None and not row.arms_clear
+
+
+def silhouette_symmetry(p: Perception, frame: BodyFrame) -> dict[str, float] | None:
+    y0 = max(0, int(frame.y_at(SYMMETRY_BAND[0])))
+    y1 = min(p.height - 1, int(frame.y_at(SYMMETRY_BAND[1])))
     if y1 - y0 < MIN_ROWS:
         return None
-    keep = ~_rows_touching_photo_edge(p, y0, y1)
+    all_rows = np.arange(y0, y1 + 1)
+    in_photo = ~_rows_touching_photo_edge(p, y0, y1)
+    keep = in_photo & ~np.array([_arm_merged(p, frame, int(y)) for y in all_rows])
+    arms_merged = keep.sum() < MIN_ROWS
+    if arms_merged:
+        # Arms rest against the sides all the way down: compare the run with
+        # them rather than give no symmetry at all, and say so.
+        keep = in_photo
     if keep.sum() < MIN_ROWS:
         return None
-    rows = np.arange(y0, y1 + 1)[keep]
-    band = _torso_runs(p, frame, rows) if torso_only else p.person_mask[rows]
+    rows = all_rows[keep]
+    band = _torso_runs(p, frame, rows)
     step = int(math.ceil(max(1.0, band.shape[1] / SYMMETRY_MAX_WIDTH)))
     small = band[::step, ::step]
     axes = np.array([frame.mid_x(y) for y in rows[::step]]) / step
@@ -77,7 +98,12 @@ def silhouette_symmetry(p: Perception, frame: BodyFrame, torso_only: bool = Fals
         ((_mirror_iou(small, axes + dx), dx * step) for dx in range(-reach, reach + 1)),
         key=lambda item: item[0],
     )
-    return {"iou": best[0], "axis_offset_px": float(best[1]), "rows_used": float(keep.mean())}
+    return {
+        "iou": best[0],
+        "axis_offset_px": float(best[1]),
+        "rows_used": float(in_photo.mean()),
+        "arms_merged": arms_merged,
+    }
 
 
 def symmetry_metric(
@@ -87,9 +113,10 @@ def symmetry_metric(
     config: ScoringConfig = DEFAULT_CONFIG,
 ) -> Metric:
     key = "symmetry"
-    # Raised or bent arms move the shoulders and change arm widths on purpose.
-    torso_only = arms_down(frame) is False
-    sil = silhouette_symmetry(p, frame, torso_only)
+    # Raised or bent arms move the shoulders and change arm widths on purpose:
+    # shoulder tilt and arm balance only count when both arms hang down.
+    relaxed = arms_down(frame) is not False
+    sil = silhouette_symmetry(p, frame)
     if sil is None:
         return unavailable(key, R_SHOULDERS_NOT_FOUND)
     left, right = frame.image_left.shoulder, frame.image_right.shoulder
@@ -100,19 +127,21 @@ def symmetry_metric(
         "rows_used": sil["rows_used"],
         "shoulder_tilt_deg": tilt,
         "rotation_index": frame.rotation_index,
-        "torso_only": torso_only,
+        "arms_down": relaxed,
     }
     reasons = rotation_reasons(frame)
-    parts = [logistic_score(sil["iou"], config.symmetry_torso_iou if torso_only else config.symmetry_iou)]
+    parts = [logistic_score(sil["iou"], config.symmetry_iou)]
     if frame.hips_estimated:
         # Without hips there is no torso axis to deskew against, so a rolled
         # camera would read as uneven shoulders; leave tilt out of the score.
         reasons.append(R_HIPS_ESTIMATED)
-    elif not torso_only:
+    elif relaxed:
         parts.append(logistic_score(-abs(tilt), config.symmetry_tilt))
     if sil["rows_used"] < MIN_KEPT_ROWS:
         reasons.append(R_BODY_CUT_OFF)
-    if not torso_only and arms is not None and arms.available and arms.values.get("balance") is not None:
+    if sil["arms_merged"]:
+        reasons.append(R_ARMS_TOUCHING)
+    if relaxed and arms is not None and arms.available and arms.values.get("balance") is not None:
         values["arm_balance"] = arms.values["balance"]
         parts.append(logistic_score(arms.values["balance"], config.symmetry_balance))
     all_reasons = tuple(reasons)

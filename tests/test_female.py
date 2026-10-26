@@ -145,11 +145,11 @@ def test_raised_arm_symmetry_compares_the_torso_only():
     raised = SynthSpec(arms_raised=True)
     p, frame = _frame(raised)
     m = symmetry_metric(p, frame, None)
-    assert m.values["torso_only"] is True
+    assert m.values["arms_down"] is False
     assert m.values["silhouette_iou"] > 0.9          # the synthetic torso is symmetric
     assert m.score > 80
     down = symmetry_metric(*_frame(SynthSpec()), None)
-    assert down.values["torso_only"] is False
+    assert down.values["arms_down"] is True
 
 
 def test_forearm_merging_into_the_hips_is_skipped():

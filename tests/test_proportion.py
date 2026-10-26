@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import pytest
 
+from boji_detector.arms import arms_metric
 from boji_detector.body import build_body_frame
 from boji_detector.proportion import R_ARMS_RAISED, R_ARMS_TOUCHING, v_taper_metric
 from boji_detector.symmetry import symmetry_metric
@@ -61,10 +62,14 @@ def test_symmetric_body_has_high_silhouette_iou():
     assert abs(m.values["shoulder_tilt_deg"]) < 0.5
 
 
-def test_uneven_arms_lower_symmetry():
-    even = symmetry_metric(*_frame(SynthSpec()), arms=None)
-    uneven = symmetry_metric(*_frame(replace(SynthSpec(), upper_arm_half=(30.0, 44.0))), arms=None)
-    assert uneven.values["silhouette_iou"] < even.values["silhouette_iou"]
+def test_uneven_arms_lower_symmetry_through_arm_balance():
+    # The overlap compares the torso only (0.2): arm size counts through the arm balance.
+    even_spec = SynthSpec()
+    uneven_spec = replace(SynthSpec(), upper_arm_half=(30.0, 44.0))
+    even = symmetry_metric(*_frame(even_spec), arms=arms_metric(*_frame(even_spec)))
+    uneven = symmetry_metric(*_frame(uneven_spec), arms=arms_metric(*_frame(uneven_spec)))
+    assert uneven.values["silhouette_iou"] == pytest.approx(even.values["silhouette_iou"], abs=0.02)
+    assert uneven.values["arm_balance"] < even.values["arm_balance"]
     assert uneven.score < even.score
 
 
