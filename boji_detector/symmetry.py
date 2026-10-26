@@ -9,8 +9,9 @@ import cv2
 import numpy as np
 
 from .body import R_HIPS_ESTIMATED, BodyFrame
-from .proportion import R_BODY_ROTATED, R_SHOULDERS_NOT_FOUND, rotation_reasons
+from .proportion import R_BODY_ROTATED, R_SHOULDERS_NOT_FOUND, arms_down, rotation_reasons
 from .scoring import DEFAULT_CONFIG, ScoringConfig, logistic_score
+from .silhouette import run_at
 from .types import Metric, Perception, status_for, unavailable
 
 R_BODY_CUT_OFF = "body_cut_off"
@@ -18,6 +19,9 @@ R_BODY_CUT_OFF = "body_cut_off"
 LOW_CONFIDENCE = frozenset({R_BODY_ROTATED, R_HIPS_ESTIMATED, R_BODY_CUT_OFF})
 
 SYMMETRY_BAND = (-0.10, 0.85)
+# Arms raised, flexed or holding something: compare the torso only, below the
+# shoulders, so a raised arm or a dumbbell does not count as asymmetry.
+TORSO_ONLY_BAND = (0.15, 0.85)
 AXIS_SEARCH = 0.04              # axis shift search, fraction of shoulder-joint distance
 SYMMETRY_MAX_WIDTH = 640
 MIN_KEPT_ROWS = 0.5             # below this share of whole rows the overlap is low confidence
@@ -44,16 +48,27 @@ def _rows_touching_photo_edge(p: Perception, y0: int, y1: int) -> np.ndarray:
     return (p.person_mask & near_outside)[y0: y1 + 1].any(axis=1)
 
 
-def silhouette_symmetry(p: Perception, frame: BodyFrame) -> dict[str, float] | None:
-    y0 = max(0, int(frame.y_at(SYMMETRY_BAND[0])))
-    y1 = min(p.height - 1, int(frame.y_at(SYMMETRY_BAND[1])))
+def _torso_runs(p: Perception, frame: BodyFrame, rows: np.ndarray) -> np.ndarray:
+    """Mask rows keeping only the silhouette run that contains the body midline."""
+    out = np.zeros((rows.size, p.width), dtype=bool)
+    for i, y in enumerate(rows):
+        span = run_at(p.person_mask, int(y), int(frame.mid_x(y)))
+        if span is not None:
+            out[i, span[0]: span[1] + 1] = True
+    return out
+
+
+def silhouette_symmetry(p: Perception, frame: BodyFrame, torso_only: bool = False) -> dict[str, float] | None:
+    band_t = TORSO_ONLY_BAND if torso_only else SYMMETRY_BAND
+    y0 = max(0, int(frame.y_at(band_t[0])))
+    y1 = min(p.height - 1, int(frame.y_at(band_t[1])))
     if y1 - y0 < MIN_ROWS:
         return None
     keep = ~_rows_touching_photo_edge(p, y0, y1)
     if keep.sum() < MIN_ROWS:
         return None
     rows = np.arange(y0, y1 + 1)[keep]
-    band = p.person_mask[rows]
+    band = _torso_runs(p, frame, rows) if torso_only else p.person_mask[rows]
     step = int(math.ceil(max(1.0, band.shape[1] / SYMMETRY_MAX_WIDTH)))
     small = band[::step, ::step]
     axes = np.array([frame.mid_x(y) for y in rows[::step]]) / step
@@ -72,7 +87,9 @@ def symmetry_metric(
     config: ScoringConfig = DEFAULT_CONFIG,
 ) -> Metric:
     key = "symmetry"
-    sil = silhouette_symmetry(p, frame)
+    # Raised or bent arms move the shoulders and change arm widths on purpose.
+    torso_only = arms_down(frame) is False
+    sil = silhouette_symmetry(p, frame, torso_only)
     if sil is None:
         return unavailable(key, R_SHOULDERS_NOT_FOUND)
     left, right = frame.image_left.shoulder, frame.image_right.shoulder
@@ -83,18 +100,19 @@ def symmetry_metric(
         "rows_used": sil["rows_used"],
         "shoulder_tilt_deg": tilt,
         "rotation_index": frame.rotation_index,
+        "torso_only": torso_only,
     }
     reasons = rotation_reasons(frame)
-    parts = [logistic_score(sil["iou"], config.symmetry_iou)]
+    parts = [logistic_score(sil["iou"], config.symmetry_torso_iou if torso_only else config.symmetry_iou)]
     if frame.hips_estimated:
         # Without hips there is no torso axis to deskew against, so a rolled
         # camera would read as uneven shoulders; leave tilt out of the score.
         reasons.append(R_HIPS_ESTIMATED)
-    else:
+    elif not torso_only:
         parts.append(logistic_score(-abs(tilt), config.symmetry_tilt))
     if sil["rows_used"] < MIN_KEPT_ROWS:
         reasons.append(R_BODY_CUT_OFF)
-    if arms is not None and arms.available and arms.values.get("balance") is not None:
+    if not torso_only and arms is not None and arms.available and arms.values.get("balance") is not None:
         values["arm_balance"] = arms.values["balance"]
         parts.append(logistic_score(arms.values["balance"], config.symmetry_balance))
     all_reasons = tuple(reasons)

@@ -29,6 +29,13 @@ HAND_POINTS = ("wrist", "pinky", "index", "thumb")
 MIN_HAND_VISIBILITY = 0.3
 FINGER_REACH = 1.0               # fingertips lie about one wrist->knuckle length past the knuckles
 HAND_PAD = 0.15                  # extra margin, as a share of the hand box size
+# Half the width of a forearm, as a share of the shoulder-joint distance: a run
+# edge this close to the arm centre line is the arm, not the hip.
+ARM_HALF_WIDTH = 0.20
+# Hips widen gradually row by row; an edge that jumps outward by more than this
+# share of the shoulder-joint distance from the last kept row is something else
+# (a forearm or hand) merging into the silhouette.
+EDGE_JUMP = 0.06
 
 
 def hand_boxes(p: Perception) -> list[tuple[float, float, float, float]]:
@@ -57,6 +64,26 @@ def _touches_hand(boxes, y: float, x0: float, x1: float) -> bool:
     return any(by0 <= y <= by1 and bx0 <= x1 and bx1 >= x0 for bx0, by0, bx1, by1 in boxes)
 
 
+def _touches_arm(frame: BodyFrame, y: float, x0: float, x1: float) -> bool:
+    margin = ARM_HALF_WIDTH * frame.shoulder_joint_dist
+    left = frame.arm_x_at(frame.image_left, y)
+    right = frame.arm_x_at(frame.image_right, y)
+    return (left is not None and x0 <= left + margin) or (right is not None and x1 >= right - margin)
+
+
+def _without_edge_jumps(torso, candidates: list[bool], frame: BodyFrame) -> list[bool]:
+    """Drop rows whose left or right edge jumps outward from the last kept row."""
+    jump = EDGE_JUMP * frame.shoulder_joint_dist
+    kept, last = [], None
+    for t, ok in zip(torso, candidates):
+        if ok and last is not None and (t.x0 < last[0] - jump or t.x1 > last[1] + jump):
+            ok = False
+        if ok:
+            last = (t.x0, t.x1)
+        kept.append(ok)
+    return kept
+
+
 def measure_hips(p: Perception, frame: BodyFrame) -> tuple[dict[str, float] | None, list[str]]:
     band = np.arange(int(frame.y_at(HIP_BAND[0])), int(frame.y_at(HIP_BAND[1])) + 1)
     if band.size == 0:
@@ -69,10 +96,15 @@ def measure_hips(p: Perception, frame: BodyFrame) -> tuple[dict[str, float] | No
     hands = hand_boxes(p)
     # A hanging hand next to the thigh can merge into the hip run below the
     # wrist, where the arm centre line no longer flags it.
-    widths = np.array([
-        t.width if t is not None and t.usable and not _touches_hand(hands, float(y), t.x0, t.x1) else np.nan
+    candidates = [
+        t is not None and t.usable and not _touches_hand(hands, float(y), t.x0, t.x1)
+        and not _touches_arm(frame, float(y), t.x0, t.x1)
         for y, t in zip(rows, torso)
-    ], dtype=float)
+    ]
+    widths = np.array(
+        [t.width if keep else np.nan for t, keep in zip(torso, _without_edge_jumps(torso, candidates, frame))],
+        dtype=float,
+    )
     if int(np.sum(~np.isnan(widths))) < MIN_VALID_HIP_ROWS:
         cut = sum(1 for t in torso if t is not None and t.clipped)
         return None, [R_HIPS_OUT_OF_FRAME if cut > rows.size / 2 else R_HIPS_BLOCKED]

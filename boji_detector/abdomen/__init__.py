@@ -44,6 +44,8 @@ UNDEREXPOSED_MEDIAN = 40
 SIDE_LIGHT_LOG = 0.35
 # Female profile: weight of the linea alba vs each lateral edge in the line index.
 LINE_WEIGHTS = {"alba": 0.4, "image_left": 0.3, "image_right": 0.3}
+# One deep side shadow must not max out the index on its own.
+LINE_CAP = 0.04
 
 __all__ = ["abs_metric", "R_ABDOMEN_COVERED", "R_ABDOMEN_OUT_OF_FRAME"]
 
@@ -138,7 +140,7 @@ def line_definition_index(alba_strength: float, lateral_strength: dict[str, floa
     """How clearly the vertical lines (linea alba and both lateral rectus edges)
     show: a weighted mean of their valley strengths, what people call the "vest line"."""
     parts = {"alba": alba_strength, **lateral_strength}
-    return float(sum(LINE_WEIGHTS[k] * max(0.0, parts.get(k, 0.0)) for k in LINE_WEIGHTS))
+    return float(sum(LINE_WEIGHTS[k] * min(LINE_CAP, max(0.0, parts.get(k, 0.0))) for k in LINE_WEIGHTS))
 
 
 def abs_metric(
@@ -180,6 +182,10 @@ def abs_metric(
         grooves[side] = side_grooves
         if len(side_grooves) >= 2:
             lateral, _, strength = find_lateral(ws, alba, sign, side_grooves[0].row, side_grooves[-1].row)
+        elif female:
+            # A bra and high-waisted leggings cover most of the full abdomen
+            # rows; only the bare band between them can show the lines.
+            lateral, _, strength = find_lateral(ws, alba, sign, ws.y_work(CORE_T_FEMALE[0]), ws.y_work(CORE_T_FEMALE[1]))
         else:
             lateral, _, strength = find_lateral(ws, alba, sign, *ws.row_range)
         laterals[side] = lateral

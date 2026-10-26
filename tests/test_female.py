@@ -137,3 +137,30 @@ def test_hips_out_of_frame_reason_has_text():
 
     for code in (R_HIPS_OUT_OF_FRAME, "hips_blocked_by_arms", "hips_at_image_edge"):
         assert MESSAGES[code][0] and MESSAGES[code][1]
+
+
+def test_raised_arm_symmetry_compares_the_torso_only():
+    from boji_detector.symmetry import symmetry_metric
+
+    raised = SynthSpec(arms_raised=True)
+    p, frame = _frame(raised)
+    m = symmetry_metric(p, frame, None)
+    assert m.values["torso_only"] is True
+    assert m.values["silhouette_iou"] > 0.9          # the synthetic torso is symmetric
+    assert m.score > 80
+    down = symmetry_metric(*_frame(SynthSpec()), None)
+    assert down.values["torso_only"] is False
+
+
+def test_forearm_merging_into_the_hips_is_skipped():
+    spec = SynthSpec()
+    p, frame = _frame(spec)
+    clean, _ = measure_hips(p, frame)
+    # Paint a forearm-sized blob merging into the image-left hip, below the wrist line.
+    mask = p.person_mask.copy()
+    hip_y = int(frame.hip_mid[1])
+    x_left = int(frame.mid_x(hip_y) - spec.hip_half)
+    mask[hip_y + 5: hip_y + 40, x_left - 45: x_left + 2] = True
+    merged, _ = measure_hips(replace(p, person_mask=mask), frame)
+    assert clean is not None and merged is not None
+    assert merged["width"] == pytest.approx(clean["width"], rel=0.05)

@@ -41,6 +41,7 @@ class ScoringConfig:
     abs_lines: Curve = Curve(mid=0.009, scale=0.004)      # vertical line index (female profile)
     waist_hip: Curve = Curve(mid=-0.74, scale=0.03)       # minus waist / hip width
     symmetry_iou: Curve = Curve(mid=0.86, scale=0.025)    # mirrored silhouette IoU
+    symmetry_torso_iou: Curve = Curve(mid=0.75, scale=0.04)  # torso-only IoU (arms raised or bent)
     symmetry_balance: Curve = Curve(mid=0.88, scale=0.025)  # thinner / thicker arm
     symmetry_tilt: Curve = Curve(mid=-4.0, scale=1.2)     # minus |shoulder tilt| in degrees
     weights: Mapping[str, float] = field(
