@@ -8,7 +8,7 @@ open_angle = 360 * (1 - enclosure).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -21,6 +21,9 @@ EDGE_REACH = 2                # pixels searched either side of an outline sample
 ENCLOSURE_THRESHOLD = GROOVE_FLOOR
 DEPTH_REF = 0.05              # groove response treated as "fully deep"
 MIN_BLOCK_SKIN = 0.7
+# The rectus abdominis has at most four rows per side (an "8-pack"). Extra rows
+# come from the lower pectoral edge, the rib line or folds below the navel.
+MAX_ROWS_PER_SIDE = 4
 
 
 @dataclass(frozen=True)
@@ -116,7 +119,15 @@ def side_blocks(
         block = measure_block(ws, alba, side, sign, len(blocks), upper, lower, lateral)
         if block is not None:
             blocks.append(block)
-    return blocks
+    return _best_rows(blocks)
+
+
+def _best_rows(blocks: list[Block], limit: int = MAX_ROWS_PER_SIDE) -> list[Block]:
+    """Keep the run of consecutive rows that is most clearly enclosed."""
+    if len(blocks) <= limit:
+        return blocks
+    start = max(range(len(blocks) - limit + 1), key=lambda i: sum(b.enclosure for b in blocks[i:i + limit]))
+    return [replace(b, index=i) for i, b in enumerate(blocks[start:start + limit])]
 
 
 def definition_index(blocks: list[Block], best_strength: float, blocks_per_side: float) -> float:
