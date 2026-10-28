@@ -22,6 +22,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from . import __version__
 from .analyze import analyze_image, read_image
+from .crops import abdomen_crop_b64
 from .messages import MESSAGES
 from .scoring import ScoringConfig, profile_config
 
@@ -73,7 +74,7 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
     def healthz() -> dict[str, Any]:
         return {"ok": state["perceiver"] is not None, "version": __version__}
 
-    def _analyze(data: bytes, config: ScoringConfig) -> dict[str, Any]:
+    def _analyze(data: bytes, config: ScoringConfig, with_crop: bool = False) -> dict[str, Any]:
         from PIL import Image
 
         try:
@@ -90,7 +91,11 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
         with lock:
             report, _ = analyze_image(bgr, config, perceiver=state["perceiver"])
         payload = report.to_dict()
-        return {"report": payload, "messages": _messages_for(payload)}
+        result: dict[str, Any] = {"report": payload, "messages": _messages_for(payload)}
+        if with_crop:
+            # Only the abdomen, for a vision-model second opinion; never the face.
+            result["abdomen_crop"] = abdomen_crop_b64(bgr, payload)
+        return result
 
     @app.post("/v1/analyze")
     async def analyze(
@@ -98,6 +103,7 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
         x_boji_token: str | None = Header(default=None),
         content_length: int | None = Header(default=None),
         sex: str = Query(default="male"),
+        abdomen_crop: bool = Query(default=False),
     ) -> dict[str, Any]:
         token = os.environ.get("BOJI_SERVICE_TOKEN")
         if token and not hmac.compare_digest(token, x_boji_token or ""):
@@ -115,7 +121,7 @@ def create_app(perceiver_factory: Callable[[], Any] = _default_perceiver) -> Fas
         if len(data) > limit:
             raise HTTPException(status_code=413, detail="file_too_large")
         try:
-            return await run_in_threadpool(_analyze, data, config)
+            return await run_in_threadpool(_analyze, data, config, abdomen_crop)
         except HTTPException:
             raise
         except Exception:

@@ -74,3 +74,22 @@ def test_perceiver_is_closed_on_shutdown():
     with TestClient(create_app(perceiver_factory=FakePerceiver)):
         pass
     assert FakePerceiver.closed
+
+
+def test_no_abdomen_crop_unless_asked(client):
+    body = client.post("/v1/analyze", content=_png()).json()
+    assert "abdomen_crop" not in body
+
+
+def test_abdomen_crop_covers_the_abdomen_only(client):
+    import base64
+
+    import numpy as np
+
+    body = client.post("/v1/analyze?abdomen_crop=true", content=_png()).json()
+    crop = cv2.imdecode(np.frombuffer(base64.b64decode(body["abdomen_crop"]), np.uint8), cv2.IMREAD_COLOR)
+    assert crop is not None
+    full_h = make_perception(SynthSpec()).image.shape[0]
+    assert max(crop.shape[:2]) <= 512
+    # The ROI sits on the torso: far smaller than the whole photo.
+    assert crop.shape[0] < 0.6 * full_h
