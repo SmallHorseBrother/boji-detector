@@ -10,7 +10,7 @@ from ..body import R_HIPS_ESTIMATED, BodyFrame
 from ..proportion import R_BODY_ROTATED, WAIST_BAND, rotation_reasons, torso_row
 from ..scoring import DEFAULT_CONFIG, ScoringConfig, logistic_score
 from ..types import Metric, Perception, status_for, unavailable
-from .blocks import Block, definition_index, side_blocks
+from .blocks import Block, definition_index, even_out_rows, side_blocks
 from .grooves import SIDES, Alba, Groove, find_alba, find_grooves, find_lateral
 from .workspace import WORK_WAIST, Workspace, build_workspace
 
@@ -177,6 +177,7 @@ def abs_metric(
         reasons.append(R_ALBA_NOT_FOUND)
     grooves, laterals, blocks = {}, {}, []
     counts, lateral_strength = {}, {}
+    found_by_side: dict[str, list[Block]] = {}
     for side, sign in SIDES.items():
         side_grooves = find_grooves(ws, alba, sign)
         grooves[side] = side_grooves
@@ -190,7 +191,13 @@ def abs_metric(
             lateral, _, strength = find_lateral(ws, alba, sign, *ws.row_range)
         laterals[side] = lateral
         lateral_strength[side] = strength
-        found = side_blocks(ws, alba, side, sign, side_grooves, lateral)
+        found_by_side[side] = side_blocks(ws, alba, side, sign, side_grooves, lateral)
+
+    if not female:
+        found_by_side["image_left"], found_by_side["image_right"] = even_out_rows(
+            found_by_side["image_left"], found_by_side["image_right"]
+        )
+    for side, found in found_by_side.items():
         counts[side] = len(found)
         blocks += found
 
