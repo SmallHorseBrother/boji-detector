@@ -130,6 +130,29 @@ def _best_rows(blocks: list[Block], limit: int = MAX_ROWS_PER_SIDE) -> list[Bloc
     return [replace(b, index=i) for i, b in enumerate(blocks[start:start + limit])]
 
 
+def even_out_rows(left: list[Block], right: list[Block]) -> tuple[list[Block], list[Block]]:
+    """Rows of the rectus come in left/right pairs, so an odd total has one spurious block.
+
+    The usual culprit is the lower pectoral edge or the rib line seen on one side only:
+    4 blocks on the left and 3 on the right are a six-pack, not seven blocks. Drop the
+    block on the longer side that overlaps the other side least, then the least enclosed.
+    Requiring every row to line up across the midline is too strict: rows detected on
+    real abs are often offset, which turned clear six-packs into two blocks. A single
+    block on its own is left alone.
+    """
+    total = len(left) + len(right)
+    if total % 2 == 0 or total < 3:
+        return left, right
+    longer, other = (left, right) if len(left) > len(right) else (right, left)
+
+    def overlap(block: Block) -> float:
+        return sum(max(0.0, min(block.bottom, o.bottom) - max(block.top, o.top)) for o in other) / max(block.height, 1e-6)
+
+    drop = min(longer, key=lambda b: (overlap(b), b.enclosure))
+    kept = [replace(b, index=i) for i, b in enumerate(x for x in longer if x is not drop)]
+    return (kept, right) if longer is left else (left, kept)
+
+
 def definition_index(blocks: list[Block], best_strength: float, blocks_per_side: float) -> float:
     """0..1 summary of how clearly the abdominal blocks are separated."""
     if not blocks:
