@@ -38,14 +38,16 @@ class ScoringConfig:
     v_taper: Curve = Curve(mid=1.62, scale=0.09)          # bideltoid / waist width
     arms: Curve = Curve(mid=0.36, scale=0.03)             # upper-arm width / length
     abs: Curve = Curve(mid=0.45, scale=0.08)              # definition index
-    abs_lines: Curve = Curve(mid=0.009, scale=0.004)      # vertical line index (female profile)
-    waist_hip: Curve = Curve(mid=-0.74, scale=0.03)       # minus waist / hip width
+    abs_lines: Curve = Curve(mid=0.018, scale=0.006)      # vertical line index (female profile)
+    waist_hip: Curve = Curve(mid=-0.78, scale=0.06)       # minus waist / hip width
     symmetry_iou: Curve = Curve(mid=0.83, scale=0.04)     # mirrored torso IoU (armpits to waist)
     symmetry_balance: Curve = Curve(mid=0.88, scale=0.025)  # thinner / thicker arm
     symmetry_tilt: Curve = Curve(mid=-4.0, scale=1.2)     # minus |shoulder tilt| in degrees
     weights: Mapping[str, float] = field(
         default_factory=lambda: {"abs": 0.40, "v_taper": 0.30, "arms": 0.15, "symmetry": 0.15}
     )
+    # No total at all without these: a shape score from a T-shirt is not a score.
+    required: tuple[str, ...] = ()
 
 
 DEFAULT_CONFIG = ScoringConfig()
@@ -55,7 +57,8 @@ DEFAULT_CONFIG = ScoringConfig()
 FEMALE_CONFIG = ScoringConfig(
     profile="female",
     v_taper=Curve(mid=1.55, scale=0.08),
-    weights={"abs": 0.35, "waist_hip": 0.35, "v_taper": 0.15, "symmetry": 0.15},
+    weights={"abs": 0.45, "waist_hip": 0.25, "v_taper": 0.15, "symmetry": 0.15},
+    required=("abs",),
 )
 
 
@@ -81,7 +84,7 @@ def total_score(metrics: Mapping[str, Metric], config: ScoringConfig = DEFAULT_C
     missing = sorted(set(config.weights) - set(used))
     weight_sum = sum(used.values())
     coverage = weight_sum / sum(config.weights.values())
-    if weight_sum <= 0 or coverage < MIN_TOTAL_COVERAGE:
+    if weight_sum <= 0 or coverage < MIN_TOTAL_COVERAGE or any(key not in used for key in config.required):
         return {"score": None, "weights_used": {}, "missing": missing, "calibration": CALIBRATION}
     normalized = {k: w / weight_sum for k, w in used.items()}
     score = sum(metrics[k].score * w for k, w in normalized.items())

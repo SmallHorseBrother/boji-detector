@@ -19,6 +19,7 @@ TORSO_PER_SHOULDER = 1.4
 
 R_POSE_NOT_FOUND = "pose_not_found"
 R_HIPS_ESTIMATED = "hips_estimated"
+R_BACK_VIEW = "back_view"
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class BodyFrame:
     # Offset of the torso silhouette centre from the joint midline, as a share
     # of the torso half-width; filled in once the silhouette is measured.
     rotation_index: float | None = None
+    back_view: bool = False
 
     @property
     def torso_len(self) -> float:
@@ -106,6 +108,21 @@ def _side(landmarks: Mapping[str, Landmark], prefix: str) -> Side | None:
     )
 
 
+def faces_away(landmarks: Mapping[str, Landmark]) -> bool:
+    """The person shows their back: left and right are swapped and the nose is behind the shoulders.
+
+    Facing the camera puts the subject's left on the image right. Flipped photos
+    (a mirror selfie) still read as facing the camera, because the model reads the
+    body and not the camera.
+    """
+    left, right = landmarks["left_shoulder"], landmarks["right_shoulder"]
+    nose = landmarks.get("nose")
+    if nose is None or left.x >= right.x or nose.z <= (left.z + right.z) / 2:
+        return False
+    left_hip, right_hip = landmarks.get("left_hip"), landmarks.get("right_hip")
+    return left_hip is None or right_hip is None or left_hip.x < right_hip.x
+
+
 def build_body_frame(
     landmarks: Mapping[str, Landmark] | None,
 ) -> tuple[BodyFrame | None, tuple[str, ...]]:
@@ -136,5 +153,6 @@ def build_body_frame(
         shoulder_mid=shoulder_mid,
         hip_mid=hip_mid,
         hips_estimated=hips_estimated,
+        back_view=faces_away(landmarks),
     )
     return frame, tuple(reasons)

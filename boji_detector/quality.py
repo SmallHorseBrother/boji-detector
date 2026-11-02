@@ -5,7 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from .body import R_HIPS_ESTIMATED, BodyFrame
+from .body import R_BACK_VIEW, R_HIPS_ESTIMATED, BodyFrame
 from .proportion import rotation_reasons
 from .types import Perception
 from .upright import MAX_DESKEW_DEG
@@ -50,6 +50,8 @@ def global_quality(
         reasons.append(R_TORSO_TOO_SMALL)
     if frame.hips_estimated:
         reasons.append(R_HIPS_ESTIMATED)
+    if frame.back_view:
+        reasons.append(R_BACK_VIEW)
     reasons += rotation_reasons(frame)
     if camera_too_tilted(frame, deskew_deg):
         reasons.append(R_CAMERA_TILTED)

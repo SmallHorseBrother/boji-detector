@@ -19,6 +19,7 @@ from .types import Metric, Perception, status_for, unavailable
 R_HIPS_OUT_OF_FRAME = "hips_out_of_frame"
 R_HIPS_BLOCKED = "hips_blocked_by_arms"
 R_HIPS_AT_EDGE = "hips_at_image_edge"
+R_WAIST_HIP_IMPLAUSIBLE = "waist_hip_implausible"
 
 LOW_CONFIDENCE = WAIST_LOW_CONFIDENCE | {R_HIPS_AT_EDGE}
 
@@ -36,6 +37,9 @@ ARM_HALF_WIDTH = 0.20
 # share of the shoulder-joint distance from the last kept row is something else
 # (a forearm or hand) merging into the silhouette.
 EDGE_JUMP = 0.06
+# Below this no real waist/hip width ratio exists: the web photos under it had a
+# side view, a pose or another person in the outline.
+MIN_PLAUSIBLE_RATIO = 0.6
 
 
 def hand_boxes(p: Perception) -> list[tuple[float, float, float, float]]:
@@ -130,6 +134,8 @@ def waist_hip_metric(p: Perception, frame: BodyFrame, config: ScoringConfig = DE
         return unavailable(key, *hip_reasons)
     reasons = tuple(dict.fromkeys(waist_reasons + hip_reasons + rotation_reasons(frame)))
     ratio = waist["width"] / hips["width"]
+    if ratio < MIN_PLAUSIBLE_RATIO:
+        return unavailable(key, R_WAIST_HIP_IMPLAUSIBLE)
     return Metric(
         key=key,
         status=status_for(reasons, LOW_CONFIDENCE),

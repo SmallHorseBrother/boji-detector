@@ -14,6 +14,8 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "sleeves_cover_arms": ("袖子遮住上臂", "Sleeves cover the upper arms"),
     "arms_not_visible": ("手臂不在画面内", "Arms are not visible"),
     "one_arm_only": ("只测到一侧手臂", "Only one arm could be measured"),
+    "back_view": ("这是背面照，看不到腹部，请拍正面", "This is a back view, so the abdomen cannot be seen; use a front photo"),
+    "waist_hip_implausible": ("腰臀比超出合理范围，可能拍到了别的人或是侧身，请单人正面拍", "The waist/hip ratio is out of range; use a front photo with one person"),
     "abdomen_covered": ("腹部被衣物遮挡", "Abdomen is covered by clothing"),
     "waist_estimated": ("腰宽为估算值", "Waist width is estimated"),
     "low_resolution": ("腹部像素太少，请靠近或用更高分辨率", "Abdomen is too small in the photo; move closer or use a higher resolution"),

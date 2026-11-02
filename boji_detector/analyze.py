@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from . import __version__
-from .abdomen import abs_metric
+from .abdomen import R_ABDOMEN_COVERED, abs_metric
 from .arms import arms_metric
 from .body import R_POSE_NOT_FOUND, build_body_frame
 from .hips import waist_hip_metric
@@ -71,7 +71,9 @@ def analyze_perception(p: Perception, config: ScoringConfig = DEFAULT_CONFIG) ->
     abdomen = abs_metric(upright, frame, waist, config)
     metrics = {"v_taper": v_taper, "symmetry": symmetry, "arms": arms, "abs": abdomen}
     if config.profile == "female":
-        metrics["waist_hip"] = waist_hip_metric(upright, frame, config)
+        # A covered torso means the outline is the clothes, not the waist.
+        covered = R_ABDOMEN_COVERED in abdomen.reasons
+        metrics["waist_hip"] = unavailable("waist_hip", R_ABDOMEN_COVERED) if covered else waist_hip_metric(upright, frame, config)
     quality = global_quality(upright, frame, angle, sharp)
     if R_CAMERA_TILTED in quality:
         metrics = {k: with_low_confidence(m, R_CAMERA_TILTED) for k, m in metrics.items()}

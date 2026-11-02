@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from ..body import R_HIPS_ESTIMATED, BodyFrame
+from ..body import R_BACK_VIEW, R_HIPS_ESTIMATED, BodyFrame
 from ..proportion import R_BODY_ROTATED, WAIST_BAND, rotation_reasons, torso_row
 from ..scoring import DEFAULT_CONFIG, ScoringConfig, logistic_score
 from ..types import Metric, Perception, status_for, unavailable
@@ -150,6 +150,8 @@ def abs_metric(
     config: ScoringConfig = DEFAULT_CONFIG,
 ) -> Metric:
     key = "abs"
+    if frame.back_view:
+        return unavailable(key, R_BACK_VIEW)
     reasons: list[str] = []
     if waist_px is None:
         waist_px = _estimate_waist(p, frame)
